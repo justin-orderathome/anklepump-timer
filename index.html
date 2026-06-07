@@ -88,6 +88,39 @@
   .card-meta { font-size: 12px; color: #64748b; margin-top: 6px; }
   .card-arrow { margin-left: auto; font-size: 28px; color: #475569; flex: 0 0 auto; }
 
+  /* ===== 紀錄頁 ===== */
+  #logScreen {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    padding: 4px 16px calc(16px + env(safe-area-inset-bottom));
+    overflow-y: auto;
+    min-height: 0;
+  }
+  .streak {
+    width: 100%; max-width: 420px;
+    background: linear-gradient(135deg, #164e63, #155e75);
+    border-radius: 16px;
+    padding: 14px 16px;
+    font-size: 16px; font-weight: 700; color: #a5f3fc;
+    text-align: center;
+    flex: 0 0 auto;
+  }
+  .log-section { width: 100%; max-width: 420px; flex: 0 0 auto; }
+  .log-title { font-size: 14px; color: #94a3b8; margin: 6px 0; font-weight: 700; }
+  .log-row {
+    display: flex; align-items: center; gap: 10px;
+    background: #1e293b; border-radius: 12px;
+    padding: 12px 14px; margin-bottom: 8px;
+  }
+  .log-row.log-today { border: 1px solid #155e75; }
+  .log-date { font-size: 15px; font-weight: 700; color: #cbd5e1; flex: 0 0 84px; }
+  .log-items { display: flex; flex-wrap: wrap; gap: 6px; }
+  .log-item { background: #0f172a; border-radius: 8px; padding: 4px 8px; font-size: 14px; color: #e2e8f0; }
+  .log-empty { color: #64748b; font-size: 15px; padding: 20px 0; text-align: center; }
+
   /* ===== 看板 ===== */
   #boardScreen {
     flex: 1 1 auto;
@@ -260,6 +293,7 @@
 <header>
   <button id="backBtn" class="icon-btn hidden" title="返回選單">←</button>
   <h1 id="headerTitle">🦵 下肢訓練計時器</h1>
+  <button id="logBtn" class="icon-btn" title="訓練紀錄">📋</button>
   <button id="voiceBtn" class="icon-btn" title="語音開關">🔊</button>
   <button id="gearBtn" class="icon-btn hidden" title="設定">⚙️</button>
 </header>
@@ -268,6 +302,15 @@
 <main id="homeScreen">
   <p class="home-sub">改善血液循環・下肢肌耐力，選一項開始</p>
   <div id="cardList" style="display:contents"></div>
+</main>
+
+<!-- 紀錄頁 -->
+<main id="logScreen" class="hidden">
+  <div class="streak" id="streakBanner"></div>
+  <div class="log-section">
+    <div class="log-title">📅 最近紀錄</div>
+    <div id="logList"></div>
+  </div>
 </main>
 
 <!-- 看板 -->
@@ -502,6 +545,39 @@ function saveVoice() {
   try { localStorage.setItem(VOICE_KEY, voiceOn ? '1' : '0'); } catch (e) { /* ignore */ }
 }
 
+/* ===== 訓練紀錄（localStorage，每天各訓練完成組數） ===== */
+const LOG_KEY = 'apt-log';
+function loadLog() {
+  try { return JSON.parse(localStorage.getItem(LOG_KEY) || '{}'); } catch (e) { return {}; }
+}
+function saveLog(log) {
+  try { localStorage.setItem(LOG_KEY, JSON.stringify(log)); } catch (e) { /* ignore */ }
+}
+function dateKey(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+function recordSet(exId) {
+  const log = loadLog();
+  const key = dateKey(new Date());
+  if (!log[key]) log[key] = {};
+  log[key][exId] = (log[key][exId] || 0) + 1;
+  // 僅保留最近 90 天
+  const keys = Object.keys(log).sort();
+  while (keys.length > 90) delete log[keys.shift()];
+  saveLog(log);
+}
+function todayCount(exId) {
+  const day = loadLog()[dateKey(new Date())];
+  return (day && day[exId]) || 0;
+}
+function calcStreak(log) {
+  let streak = 0;
+  const d = new Date();
+  if (!log[dateKey(d)]) d.setDate(d.getDate() - 1); // 今天還沒練，從昨天往回算
+  while (log[dateKey(d)]) { streak++; d.setDate(d.getDate() - 1); }
+  return streak;
+}
+
 /* ===== 語音（Web Speech API） ===== */
 let zhVoice = null;
 function pickVoice() {
@@ -558,6 +634,7 @@ let tickTimer = null;
 const $ = id => document.getElementById(id);
 const ui = {
   homeScreen: $('homeScreen'), boardScreen: $('boardScreen'), cardList: $('cardList'),
+  logScreen: $('logScreen'), logBtn: $('logBtn'), streakBanner: $('streakBanner'), logList: $('logList'),
   headerTitle: $('headerTitle'), backBtn: $('backBtn'),
   setNow: $('setNow'), setTotal: $('setTotal'),
   repChip: $('repChip'), repNow: $('repNow'), repTotal: $('repTotal'),
@@ -610,6 +687,12 @@ function tick() {
   if (remaining <= 0) {
     elapsedBefore += st.duration;
     stepIndex++;
+    // 一組的最後一個動作步驟完成 → 記錄一組（中途退出也保留已完成的組數）
+    const next = steps[stepIndex];
+    if ((st.phase === 'up' || st.phase === 'down' || st.phase === 'hold') &&
+        (!next || next.phase === 'rest' || next.set > st.set)) {
+      recordSet(currentExercise.id);
+    }
     if (stepIndex >= steps.length) { finishWorkout(); return; }
     enterStep(stepIndex);
     return;
@@ -696,6 +779,7 @@ function renderCards() {
   ui.cardList.innerHTML = '';
   for (const ex of EXERCISES) {
     const s = loadExSettings(ex);
+    const n = todayCount(ex.id);
     const card = document.createElement('button');
     card.className = 'card';
     card.innerHTML =
@@ -703,7 +787,7 @@ function renderCards() {
       `<span class="card-body">` +
         `<span class="card-name">${ex.name}</span><br>` +
         `<span class="card-desc">${ex.desc}</span><br>` +
-        `<span class="card-meta">${ex.summary(s)}</span>` +
+        `<span class="card-meta">${ex.summary(s)}${n > 0 ? `<br>✅ 今日已完成 ${n} 組` : ''}</span>` +
       `</span>` +
       `<span class="card-arrow">›</span>`;
     card.addEventListener('click', () => openExercise(ex));
@@ -716,9 +800,11 @@ function openExercise(ex) {
   settings = loadExSettings(ex);
   ui.headerTitle.textContent = `${ex.emoji} ${ex.name}`;
   ui.homeScreen.classList.add('hidden');
+  ui.logScreen.classList.add('hidden');
   ui.boardScreen.classList.remove('hidden');
   ui.backBtn.classList.remove('hidden');
   ui.gearBtn.classList.remove('hidden');
+  ui.logBtn.classList.add('hidden');
   resetToIdle();
 }
 
@@ -731,10 +817,62 @@ function goHome() {
   document.body.dataset.phase = 'idle';
   ui.headerTitle.textContent = '🦵 下肢訓練計時器';
   ui.boardScreen.classList.add('hidden');
+  ui.logScreen.classList.add('hidden');
   ui.backBtn.classList.add('hidden');
   ui.gearBtn.classList.add('hidden');
-  renderCards(); // 重新整理卡片上的設定摘要
+  ui.logBtn.classList.remove('hidden');
+  renderCards(); // 重新整理卡片上的設定摘要與今日組數
   ui.homeScreen.classList.remove('hidden');
+}
+
+/* ===== 紀錄頁 ===== */
+const WEEK_NAMES = ['日', '一', '二', '三', '四', '五', '六'];
+function renderLog() {
+  const log = loadLog();
+  const todayStr = dateKey(new Date());
+  const today = log[todayStr];
+  const totalToday = today ? Object.values(today).reduce((a, b) => a + b, 0) : 0;
+  const streak = calcStreak(log);
+  ui.streakBanner.textContent = streak > 0
+    ? `🔥 連續訓練 ${streak} 天｜今天共 ${totalToday} 組`
+    : (totalToday > 0 ? `今天共 ${totalToday} 組，繼續加油！` : '今天還沒有紀錄，動起來吧！');
+  ui.logList.innerHTML = '';
+  const keys = Object.keys(log).sort().reverse().slice(0, 14);
+  if (keys.length === 0) {
+    ui.logList.innerHTML = '<div class="log-empty">還沒有任何紀錄，完成第一組就會出現在這裡 💪</div>';
+    return;
+  }
+  for (const k of keys) {
+    const row = document.createElement('div');
+    row.className = 'log-row' + (k === todayStr ? ' log-today' : '');
+    const d = new Date(k + 'T00:00:00');
+    const dateEl = document.createElement('span');
+    dateEl.className = 'log-date';
+    dateEl.textContent = `${d.getMonth() + 1}/${d.getDate()} 週${WEEK_NAMES[d.getDay()]}`;
+    const items = document.createElement('span');
+    items.className = 'log-items';
+    for (const ex of EXERCISES) {
+      const n = log[k][ex.id];
+      if (n) {
+        const it = document.createElement('span');
+        it.className = 'log-item';
+        it.textContent = `${ex.emoji} ${n} 組`;
+        items.appendChild(it);
+      }
+    }
+    row.appendChild(dateEl);
+    row.appendChild(items);
+    ui.logList.appendChild(row);
+  }
+}
+
+function openLog() {
+  renderLog();
+  ui.headerTitle.textContent = '📋 訓練紀錄';
+  ui.homeScreen.classList.add('hidden');
+  ui.logScreen.classList.remove('hidden');
+  ui.backBtn.classList.remove('hidden');
+  ui.logBtn.classList.add('hidden');
 }
 
 /* ===== 按鈕事件 ===== */
@@ -750,6 +888,7 @@ ui.resetBtn.addEventListener('click', () => {
 });
 
 ui.backBtn.addEventListener('click', goHome);
+ui.logBtn.addEventListener('click', openLog);
 
 ui.voiceBtn.addEventListener('click', () => {
   voiceOn = !voiceOn;
