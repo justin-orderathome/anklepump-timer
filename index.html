@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0f172a">
-<title>踝泵運動計時器</title>
+<title>下肢訓練計時器</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { height: 100%; }
@@ -25,31 +25,71 @@
   /* 各階段背景微調色，方便遠看辨識 */
   body[data-phase="up"]    { background: #0c2530; }
   body[data-phase="down"]  { background: #2b1a0c; }
+  body[data-phase="hold"]  { background: #2b0f1e; }
   body[data-phase="rest"]  { background: #0e2417; }
   body[data-phase="prepare"], body[data-phase="switch"] { background: #221f0e; }
   body[data-phase="done"]  { background: #1b1030; }
 
+  .hidden { display: none !important; }
+
   header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    gap: 8px;
     padding: 10px 14px;
     flex: 0 0 auto;
   }
-  header h1 { font-size: 17px; font-weight: 700; color: #94a3b8; }
-  .icon-btns { display: flex; gap: 8px; }
+  header h1 { font-size: 17px; font-weight: 700; color: #94a3b8; flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .icon-btn {
     font-size: 20px;
     background: #1e293b;
     border: none;
     border-radius: 10px;
     width: 42px; height: 42px;
+    flex: 0 0 auto;
     cursor: pointer;
     color: #e2e8f0;
   }
   .icon-btn:disabled { opacity: .35; }
 
-  main {
+  /* ===== 首頁：訓練選單 ===== */
+  #homeScreen {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    padding: 4px 16px calc(16px + env(safe-area-inset-bottom));
+    overflow-y: auto;
+    min-height: 0;
+  }
+  .home-sub { color: #94a3b8; font-size: 15px; margin: 4px 0 2px; }
+  .card {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    width: 100%;
+    max-width: 420px;
+    background: #1e293b;
+    border: none;
+    border-radius: 16px;
+    padding: 16px;
+    cursor: pointer;
+    text-align: left;
+    color: inherit;
+    font-family: inherit;
+    flex: 0 0 auto;
+  }
+  .card:active { transform: scale(.98); }
+  .card-emoji { font-size: 36px; flex: 0 0 auto; }
+  .card-body { min-width: 0; }
+  .card-name { font-size: 19px; font-weight: 800; color: #f1f5f9; }
+  .card-desc { font-size: 13px; color: #94a3b8; margin-top: 2px; }
+  .card-meta { font-size: 12px; color: #64748b; margin-top: 6px; }
+  .card-arrow { margin-left: auto; font-size: 28px; color: #475569; flex: 0 0 auto; }
+
+  /* ===== 看板 ===== */
+  #boardScreen {
     flex: 1 1 auto;
     display: flex;
     flex-direction: column;
@@ -62,9 +102,9 @@
     overflow-x: hidden;
   }
   /* 空間足夠時均勻分布；不夠時 auto margin 歸零、改為可捲動 */
-  main > * { flex: 0 0 auto; margin-top: auto; margin-bottom: auto; }
+  #boardScreen > * { flex: 0 0 auto; margin-top: auto; margin-bottom: auto; }
 
-  /* 組 / 腳 / 回 資訊列 */
+  /* 組 / 動作 / 回 資訊列 */
   .meta-row {
     display: flex;
     gap: 10px;
@@ -82,7 +122,7 @@
     white-space: nowrap;
   }
   .meta-chip b { font-size: 20px; color: #f1f5f9; }
-  #footChip { background: #312e81; color: #c7d2fe; font-size: 20px; padding: 8px 18px; }
+  #midChip { background: #312e81; color: #c7d2fe; font-size: 20px; padding: 8px 18px; }
 
   /* 動作大字 */
   #actionLabel {
@@ -95,6 +135,7 @@
   }
   .c-up    { color: #22d3ee; }
   .c-down  { color: #fb923c; }
+  .c-hold  { color: #f472b6; }
   .c-rest  { color: #4ade80; }
   .c-warm  { color: #facc15; }
   .c-done  { color: #c084fc; }
@@ -162,9 +203,11 @@
     #countNum { font-size: clamp(44px, 14vh, 88px); }
     .meta-chip { padding: 6px 10px; font-size: 14px; }
     .meta-chip b { font-size: 16px; }
-    #footChip { font-size: 16px; padding: 6px 12px; }
+    #midChip { font-size: 16px; padding: 6px 12px; }
     #hint { font-size: 12px; }
     .btn { font-size: 20px; padding: 12px 0; }
+    .card { padding: 12px; }
+    .card-emoji { font-size: 28px; }
   }
 
   /* 設定面板 */
@@ -182,6 +225,8 @@
     border-radius: 20px 20px 0 0;
     width: 100%;
     max-width: 480px;
+    max-height: 85dvh;
+    overflow-y: auto;
     padding: 20px 20px calc(20px + env(safe-area-inset-bottom));
   }
   .sheet h2 { font-size: 18px; margin-bottom: 16px; color: #f1f5f9; }
@@ -213,18 +258,24 @@
 <body data-phase="idle">
 
 <header>
-  <h1>🦵 踝泵運動計時器</h1>
-  <div class="icon-btns">
-    <button id="voiceBtn" class="icon-btn" title="語音開關">🔊</button>
-    <button id="gearBtn" class="icon-btn" title="設定">⚙️</button>
-  </div>
+  <button id="backBtn" class="icon-btn hidden" title="返回選單">←</button>
+  <h1 id="headerTitle">🦵 下肢訓練計時器</h1>
+  <button id="voiceBtn" class="icon-btn" title="語音開關">🔊</button>
+  <button id="gearBtn" class="icon-btn hidden" title="設定">⚙️</button>
 </header>
 
-<main>
+<!-- 首頁：訓練選單 -->
+<main id="homeScreen">
+  <p class="home-sub">改善血液循環・下肢肌耐力，選一項開始</p>
+  <div id="cardList" style="display:contents"></div>
+</main>
+
+<!-- 看板 -->
+<main id="boardScreen" class="hidden">
   <div class="meta-row">
     <span class="meta-chip">第 <b id="setNow">-</b> / <span id="setTotal">-</span> 組</span>
-    <span class="meta-chip" id="footChip">準備</span>
-    <span class="meta-chip">第 <b id="repNow">-</b> / <span id="repTotal">-</span> 回</span>
+    <span class="meta-chip" id="midChip">準備</span>
+    <span class="meta-chip" id="repChip">第 <b id="repNow">-</b> / <span id="repTotal">-</span> 回</span>
   </div>
 
   <div id="actionLabel" class="c-idle">準備好了嗎？</div>
@@ -254,11 +305,7 @@
 <div id="settingsOverlay">
   <div class="sheet">
     <h2>⚙️ 設定</h2>
-    <div class="field"><label for="inUp">腳尖勾起秒數</label><input id="inUp" type="number" min="1" max="60" inputmode="numeric"></div>
-    <div class="field"><label for="inDown">腳尖下壓秒數</label><input id="inDown" type="number" min="1" max="60" inputmode="numeric"></div>
-    <div class="field"><label for="inReps">每腳回數</label><input id="inReps" type="number" min="1" max="99" inputmode="numeric"></div>
-    <div class="field"><label for="inSets">組數（兩腳=1組）</label><input id="inSets" type="number" min="1" max="20" inputmode="numeric"></div>
-    <div class="field"><label for="inRest">組間休息秒數</label><input id="inRest" type="number" min="0" max="600" inputmode="numeric"></div>
+    <div id="settingsFields"></div>
     <div class="field"><label for="inVoice">語音播報</label><input id="inVoice" type="checkbox"></div>
     <div class="sheet-btns">
       <button id="cancelSettingsBtn" class="btn btn-secondary" style="flex:1">取消</button>
@@ -270,21 +317,190 @@
 <script>
 'use strict';
 
-/* ===== 設定（localStorage） ===== */
-const STORAGE_KEY = 'anklepump-settings';
-const DEFAULTS = { upSec: 5, downSec: 5, reps: 20, sets: 3, restSec: 30, voice: true };
+/* ===== 共用工具 ===== */
+function repCue(word, rep, reps) {
+  const remain = reps - rep + 1;
+  if (remain === 1) return word + '，最後一回';
+  if (remain <= 3) return `${word}，剩${remain}回`;
+  return word;
+}
+function restStep(set, restSec) {
+  return {
+    phase: 'rest', set, rep: 0, duration: restSec, chip: '休息',
+    label: '休息', speak: `這組完成，休息${restSec}秒`,
+    cues: restSec > 5 ? [{ at: 3, text: '準備繼續' }] : []
+  };
+}
 
-function loadSettings() {
+/* ===== 訓練註冊表 ===== */
+const EXERCISES = [
+  {
+    id: 'anklepump', emoji: '🦶', name: '踝泵運動',
+    desc: '腳尖勾起／下壓，促進小腿血液回流',
+    hasReps: true,
+    fields: [
+      { key: 'upSec',   label: '腳尖勾起秒數', def: 5,  min: 1, max: 60 },
+      { key: 'downSec', label: '腳尖下壓秒數', def: 5,  min: 1, max: 60 },
+      { key: 'reps',    label: '每腳回數',     def: 20, min: 1, max: 99 },
+      { key: 'sets',    label: '組數',         def: 3,  min: 1, max: 20 },
+      { key: 'restSec', label: '組間休息秒數', def: 30, min: 0, max: 600 },
+    ],
+    summary: s => `勾起 ${s.upSec} 秒｜下壓 ${s.downSec} 秒｜每腳 ${s.reps} 回｜${s.sets} 組｜休息 ${s.restSec} 秒`,
+    buildSteps(s) {
+      const steps = [];
+      const FOOT = { left: '左腳', right: '右腳' };
+      for (let set = 1; set <= s.sets; set++) {
+        steps.push({
+          phase: 'prepare', set, rep: 0, duration: 3, chip: FOOT.left,
+          label: '準備', speak: set === 1 ? '準備，左腳開始' : `第${set}組，左腳開始`
+        });
+        for (const foot of ['left', 'right']) {
+          if (foot === 'right') {
+            steps.push({
+              phase: 'switch', set, rep: 0, duration: 3, chip: FOOT.right,
+              label: '換腳', speak: '換腳，右腳開始'
+            });
+          }
+          for (let rep = 1; rep <= s.reps; rep++) {
+            steps.push({ phase: 'up',   set, rep, duration: s.upSec,   chip: FOOT[foot], label: '勾起 ↑', speak: repCue('勾起', rep, s.reps) });
+            steps.push({ phase: 'down', set, rep, duration: s.downSec, chip: FOOT[foot], label: '下壓 ↓', speak: '下壓' });
+          }
+        }
+        if (set < s.sets && s.restSec > 0) steps.push(restStep(set, s.restSec));
+      }
+      return steps;
+    }
+  },
+  {
+    id: 'calfraise', emoji: '🦵', name: '站姿提踵',
+    desc: '墊腳尖提踵，鍛鍊小腿「第二心臟」',
+    hasReps: true,
+    fields: [
+      { key: 'upSec',   label: '踮起保持秒數', def: 3,  min: 1, max: 60 },
+      { key: 'downSec', label: '放下秒數',     def: 3,  min: 1, max: 60 },
+      { key: 'reps',    label: '回數',         def: 15, min: 1, max: 99 },
+      { key: 'sets',    label: '組數',         def: 3,  min: 1, max: 20 },
+      { key: 'restSec', label: '組間休息秒數', def: 30, min: 0, max: 600 },
+    ],
+    summary: s => `踮起 ${s.upSec} 秒｜放下 ${s.downSec} 秒｜${s.reps} 回｜${s.sets} 組｜休息 ${s.restSec} 秒`,
+    buildSteps(s) {
+      const steps = [];
+      for (let set = 1; set <= s.sets; set++) {
+        steps.push({
+          phase: 'prepare', set, rep: 0, duration: 3, chip: '雙腳',
+          label: '準備', speak: set === 1 ? '準備，扶好支撐，墊腳尖開始' : `第${set}組開始`
+        });
+        for (let rep = 1; rep <= s.reps; rep++) {
+          steps.push({ phase: 'up',   set, rep, duration: s.upSec,   chip: '雙腳', label: '踮起 ↑', speak: repCue('踮起', rep, s.reps) });
+          steps.push({ phase: 'down', set, rep, duration: s.downSec, chip: '雙腳', label: '放下 ↓', speak: '放下' });
+        }
+        if (set < s.sets && s.restSec > 0) steps.push(restStep(set, s.restSec));
+      }
+      return steps;
+    }
+  },
+  {
+    id: 'sitstand', emoji: '🪑', name: '椅子坐站',
+    desc: '站起坐下循環，全面下肢肌耐力',
+    hasReps: true,
+    fields: [
+      { key: 'upSec',   label: '站起秒數',     def: 3,  min: 1, max: 60 },
+      { key: 'downSec', label: '坐下秒數',     def: 3,  min: 1, max: 60 },
+      { key: 'reps',    label: '回數',         def: 10, min: 1, max: 99 },
+      { key: 'sets',    label: '組數',         def: 3,  min: 1, max: 20 },
+      { key: 'restSec', label: '組間休息秒數', def: 45, min: 0, max: 600 },
+    ],
+    summary: s => `站起 ${s.upSec} 秒｜坐下 ${s.downSec} 秒｜${s.reps} 回｜${s.sets} 組｜休息 ${s.restSec} 秒`,
+    buildSteps(s) {
+      const steps = [];
+      for (let set = 1; set <= s.sets; set++) {
+        steps.push({
+          phase: 'prepare', set, rep: 0, duration: 3, chip: '全身',
+          label: '準備', speak: set === 1 ? '準備，坐在椅子前緣，坐站開始' : `第${set}組開始`
+        });
+        for (let rep = 1; rep <= s.reps; rep++) {
+          steps.push({ phase: 'up',   set, rep, duration: s.upSec,   chip: '全身', label: '站起 ↑', speak: repCue('站起', rep, s.reps) });
+          steps.push({ phase: 'down', set, rep, duration: s.downSec, chip: '全身', label: '坐下 ↓', speak: '坐下' });
+        }
+        if (set < s.sets && s.restSec > 0) steps.push(restStep(set, s.restSec));
+      }
+      return steps;
+    }
+  },
+  {
+    id: 'wallsit', emoji: '🧱', name: '靠牆靜蹲',
+    desc: '靠牆半蹲保持，大腿肌耐力',
+    hasReps: false,
+    fields: [
+      { key: 'holdSec', label: '保持秒數',     def: 45, min: 10, max: 300 },
+      { key: 'sets',    label: '組數',         def: 3,  min: 1,  max: 20 },
+      { key: 'restSec', label: '組間休息秒數', def: 60, min: 0,  max: 600 },
+    ],
+    summary: s => `保持 ${s.holdSec} 秒｜${s.sets} 組｜休息 ${s.restSec} 秒`,
+    buildSteps(s) {
+      const steps = [];
+      for (let set = 1; set <= s.sets; set++) {
+        steps.push({
+          phase: 'prepare', set, rep: 0, duration: 5, chip: '保持',
+          label: '準備', speak: set === 1 ? '準備，背靠牆，慢慢蹲下' : `第${set}組，靠牆蹲好`
+        });
+        const cues = [];
+        if (s.holdSec >= 30) cues.push({ at: Math.floor(s.holdSec / 2), text: '過半了，加油' });
+        if (s.holdSec >= 20) cues.push({ at: 10, text: '剩十秒' });
+        cues.push({ at: 3, text: '三、二、一' });
+        steps.push({
+          phase: 'hold', set, rep: 0, duration: s.holdSec, chip: '保持',
+          label: '保持 💪', speak: `開始，保持${s.holdSec}秒`, cues
+        });
+        if (set < s.sets && s.restSec > 0) steps.push(restStep(set, s.restSec));
+      }
+      return steps;
+    }
+  },
+];
+
+/* ===== 設定（localStorage，各訓練獨立） ===== */
+const VOICE_KEY = 'apt-voice';
+const SETTINGS_PREFIX = 'apt-settings-';
+
+function defaultsOf(ex) {
+  const o = {};
+  ex.fields.forEach(f => { o[f.key] = f.def; });
+  return o;
+}
+function loadExSettings(ex) {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return { ...DEFAULTS, ...JSON.parse(raw) };
+    const raw = localStorage.getItem(SETTINGS_PREFIX + ex.id);
+    if (raw) return Object.assign(defaultsOf(ex), JSON.parse(raw));
   } catch (e) { /* 私密模式等情況下忽略 */ }
-  return { ...DEFAULTS };
+  return defaultsOf(ex);
 }
-function saveSettings() {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(settings)); } catch (e) { /* ignore */ }
+function saveExSettings(ex, s) {
+  try { localStorage.setItem(SETTINGS_PREFIX + ex.id, JSON.stringify(s)); } catch (e) { /* ignore */ }
 }
-let settings = loadSettings();
+/* v1 舊資料遷移：anklepump-settings → apt-settings-anklepump ＋ apt-voice */
+(function migrateV1() {
+  try {
+    const raw = localStorage.getItem('anklepump-settings');
+    if (!raw) return;
+    const old = JSON.parse(raw);
+    if (typeof old.voice === 'boolean' && localStorage.getItem(VOICE_KEY) === null) {
+      localStorage.setItem(VOICE_KEY, old.voice ? '1' : '0');
+    }
+    delete old.voice;
+    if (localStorage.getItem(SETTINGS_PREFIX + 'anklepump') === null) {
+      localStorage.setItem(SETTINGS_PREFIX + 'anklepump', JSON.stringify(old));
+    }
+    localStorage.removeItem('anklepump-settings');
+  } catch (e) { /* ignore */ }
+})();
+
+let voiceOn = (function () {
+  try { const v = localStorage.getItem(VOICE_KEY); return v === null ? true : v === '1'; } catch (e) { return true; }
+})();
+function saveVoice() {
+  try { localStorage.setItem(VOICE_KEY, voiceOn ? '1' : '0'); } catch (e) { /* ignore */ }
+}
 
 /* ===== 語音（Web Speech API） ===== */
 let zhVoice = null;
@@ -298,7 +514,7 @@ if ('speechSynthesis' in window) {
   speechSynthesis.onvoiceschanged = pickVoice;
 }
 function speak(text) {
-  if (!settings.voice || !('speechSynthesis' in window) || !text) return;
+  if (!voiceOn || !('speechSynthesis' in window) || !text) return;
   speechSynthesis.cancel(); // 避免播報重疊堆積
   const u = new SpeechSynthesisUtterance(text);
   u.lang = 'zh-TW';
@@ -322,47 +538,13 @@ function releaseWakeLock() {
   if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
 }
 
-/* ===== 流程步驟產生 ===== */
-const FOOT_NAME = { left: '左腳', right: '右腳' };
-
-function buildSteps(s) {
-  const steps = [];
-  for (let set = 1; set <= s.sets; set++) {
-    steps.push({
-      phase: 'prepare', set, foot: 'left', rep: 0, duration: 3,
-      label: '準備', speak: set === 1 ? '準備，左腳開始' : `第${set}組，左腳開始`
-    });
-    for (const foot of ['left', 'right']) {
-      if (foot === 'right') {
-        steps.push({
-          phase: 'switch', set, foot, rep: 0, duration: 3,
-          label: '換腳', speak: '換腳，右腳開始'
-        });
-      }
-      for (let rep = 1; rep <= s.reps; rep++) {
-        const remain = s.reps - rep + 1;
-        let upSpeak = '勾起';
-        if (remain === 1) upSpeak = '勾起，最後一回';
-        else if (remain <= 3) upSpeak = `勾起，剩${remain}回`;
-        steps.push({ phase: 'up', set, foot, rep, duration: s.upSec, label: '勾起 ↑', speak: upSpeak });
-        steps.push({ phase: 'down', set, foot, rep, duration: s.downSec, label: '下壓 ↓', speak: '下壓' });
-      }
-    }
-    if (set < s.sets && s.restSec > 0) {
-      steps.push({
-        phase: 'rest', set, foot: 'left', rep: 0, duration: s.restSec,
-        label: '休息', speak: `這組完成，休息${s.restSec}秒`
-      });
-    }
-  }
-  return steps;
-}
-
 /* ===== 計時引擎（timestamp-based，防飄移） ===== */
-const PHASE_COLOR = { up: '#22d3ee', down: '#fb923c', rest: '#4ade80', prepare: '#facc15', switch: '#facc15' };
-const PHASE_CLASS = { up: 'c-up', down: 'c-down', rest: 'c-rest', prepare: 'c-warm', switch: 'c-warm' };
+const PHASE_COLOR = { up: '#22d3ee', down: '#fb923c', hold: '#f472b6', rest: '#4ade80', prepare: '#facc15', switch: '#facc15' };
+const PHASE_CLASS = { up: 'c-up', down: 'c-down', hold: 'c-hold', rest: 'c-rest', prepare: 'c-warm', switch: 'c-warm' };
 const CIRCUMFERENCE = 565.49;
 
+let currentExercise = null;
+let settings = null;
 let steps = [];
 let stepIndex = 0;
 let running = false;
@@ -372,21 +554,23 @@ let pausedAt = 0;
 let elapsedBefore = 0;   // 已完成步驟的累計秒數
 let totalDuration = 0;
 let tickTimer = null;
-let restCueDone = false; // 休息剩 3 秒提示旗標
 
 const $ = id => document.getElementById(id);
 const ui = {
+  homeScreen: $('homeScreen'), boardScreen: $('boardScreen'), cardList: $('cardList'),
+  headerTitle: $('headerTitle'), backBtn: $('backBtn'),
   setNow: $('setNow'), setTotal: $('setTotal'),
-  repNow: $('repNow'), repTotal: $('repTotal'),
-  footChip: $('footChip'), actionLabel: $('actionLabel'),
+  repChip: $('repChip'), repNow: $('repNow'), repTotal: $('repTotal'),
+  midChip: $('midChip'), actionLabel: $('actionLabel'),
   countNum: $('countNum'), ringFg: $('ringFg'),
   progressFill: $('progressFill'), progressPct: $('progressPct'),
   hint: $('hint'), mainBtn: $('mainBtn'), resetBtn: $('resetBtn'),
   voiceBtn: $('voiceBtn'), gearBtn: $('gearBtn'),
+  settingsFields: $('settingsFields'),
 };
 
 function startWorkout() {
-  steps = buildSteps(settings);
+  steps = currentExercise.buildSteps(settings);
   totalDuration = steps.reduce((sum, st) => sum + st.duration, 0);
   stepIndex = 0;
   elapsedBefore = 0;
@@ -404,13 +588,12 @@ function startWorkout() {
 function enterStep(i) {
   const st = steps[i];
   phaseStart = performance.now();
-  restCueDone = false;
   document.body.dataset.phase = st.phase;
   ui.setNow.textContent = st.set;
   ui.setTotal.textContent = settings.sets;
   ui.repNow.textContent = st.rep > 0 ? st.rep : '-';
-  ui.repTotal.textContent = settings.reps;
-  ui.footChip.textContent = st.phase === 'rest' ? '休息' : FOOT_NAME[st.foot];
+  ui.repTotal.textContent = settings.reps || '-';
+  ui.midChip.textContent = st.chip;
   ui.actionLabel.textContent = st.label;
   ui.actionLabel.className = PHASE_CLASS[st.phase];
   ui.ringFg.style.stroke = PHASE_COLOR[st.phase];
@@ -436,10 +619,11 @@ function tick() {
   const pct = Math.min(100, (elapsedBefore + elapsed) / totalDuration * 100);
   ui.progressFill.style.width = pct + '%';
   ui.progressPct.textContent = Math.floor(pct) + '%';
-  // 休息剩 3 秒語音提醒
-  if (st.phase === 'rest' && remaining <= 3.2 && !restCueDone) {
-    restCueDone = true;
-    speak('準備繼續');
+  // 通用中途語音提示（休息剩3秒、靠牆蹲報時等）
+  if (st.cues) {
+    for (const c of st.cues) {
+      if (!c.fired && remaining <= c.at + 0.2) { c.fired = true; speak(c.text); }
+    }
   }
 }
 
@@ -468,7 +652,7 @@ function finishWorkout() {
   ui.ringFg.style.stroke = '#c084fc';
   ui.progressFill.style.width = '100%';
   ui.progressPct.textContent = '100%';
-  ui.footChip.textContent = '完成';
+  ui.midChip.textContent = '完成';
   ui.mainBtn.textContent = '再做一次';
   ui.mainBtn.className = 'btn btn-primary';
   ui.resetBtn.disabled = true;
@@ -491,11 +675,12 @@ function resetToIdle() {
   ui.setNow.textContent = '-';
   ui.setTotal.textContent = settings.sets;
   ui.repNow.textContent = '-';
-  ui.repTotal.textContent = settings.reps;
-  ui.footChip.textContent = '準備';
+  ui.repTotal.textContent = settings.reps || '-';
+  ui.repChip.style.display = currentExercise.hasReps ? '' : 'none';
+  ui.midChip.textContent = '準備';
   ui.actionLabel.textContent = '準備好了嗎？';
   ui.actionLabel.className = 'c-idle';
-  ui.countNum.textContent = '🦶';
+  ui.countNum.textContent = currentExercise.emoji;
   ui.ringFg.style.strokeDashoffset = 0;
   ui.ringFg.style.stroke = '#22d3ee';
   ui.progressFill.style.width = '0%';
@@ -503,12 +688,53 @@ function resetToIdle() {
   ui.mainBtn.textContent = '開始';
   ui.mainBtn.className = 'btn btn-primary';
   ui.resetBtn.disabled = true;
-  updateHint();
+  ui.hint.textContent = currentExercise.summary(settings);
 }
 
-function updateHint() {
-  ui.hint.textContent =
-    `勾起 ${settings.upSec} 秒｜下壓 ${settings.downSec} 秒｜每腳 ${settings.reps} 回｜${settings.sets} 組｜休息 ${settings.restSec} 秒`;
+/* ===== 畫面切換 ===== */
+function renderCards() {
+  ui.cardList.innerHTML = '';
+  for (const ex of EXERCISES) {
+    const s = loadExSettings(ex);
+    const card = document.createElement('button');
+    card.className = 'card';
+    card.innerHTML =
+      `<span class="card-emoji">${ex.emoji}</span>` +
+      `<span class="card-body">` +
+        `<span class="card-name">${ex.name}</span><br>` +
+        `<span class="card-desc">${ex.desc}</span><br>` +
+        `<span class="card-meta">${ex.summary(s)}</span>` +
+      `</span>` +
+      `<span class="card-arrow">›</span>`;
+    card.addEventListener('click', () => openExercise(ex));
+    ui.cardList.appendChild(card);
+  }
+}
+
+function openExercise(ex) {
+  currentExercise = ex;
+  settings = loadExSettings(ex);
+  ui.headerTitle.textContent = `${ex.emoji} ${ex.name}`;
+  ui.homeScreen.classList.add('hidden');
+  ui.boardScreen.classList.remove('hidden');
+  ui.backBtn.classList.remove('hidden');
+  ui.gearBtn.classList.remove('hidden');
+  resetToIdle();
+}
+
+function goHome() {
+  if (running && !confirm('運動進行中，確定要返回選單嗎？')) return;
+  stopEngine();
+  stopSpeak();
+  currentExercise = null;
+  settings = null;
+  document.body.dataset.phase = 'idle';
+  ui.headerTitle.textContent = '🦵 下肢訓練計時器';
+  ui.boardScreen.classList.add('hidden');
+  ui.backBtn.classList.add('hidden');
+  ui.gearBtn.classList.add('hidden');
+  renderCards(); // 重新整理卡片上的設定摘要
+  ui.homeScreen.classList.remove('hidden');
 }
 
 /* ===== 按鈕事件 ===== */
@@ -523,35 +749,52 @@ ui.resetBtn.addEventListener('click', () => {
   resetToIdle();
 });
 
+ui.backBtn.addEventListener('click', goHome);
+
 ui.voiceBtn.addEventListener('click', () => {
-  settings.voice = !settings.voice;
-  saveSettings();
-  ui.voiceBtn.textContent = settings.voice ? '🔊' : '🔇';
-  if (!settings.voice) stopSpeak();
+  voiceOn = !voiceOn;
+  saveVoice();
+  ui.voiceBtn.textContent = voiceOn ? '🔊' : '🔇';
+  if (!voiceOn) stopSpeak();
 });
 
-/* ===== 設定面板 ===== */
+/* ===== 設定面板（依訓練 schema 動態產生） ===== */
 const overlay = $('settingsOverlay');
-const inputs = { upSec: $('inUp'), downSec: $('inDown'), reps: $('inReps'), sets: $('inSets'), restSec: $('inRest') };
 
 ui.gearBtn.addEventListener('click', () => {
-  for (const [key, el] of Object.entries(inputs)) el.value = settings[key];
-  $('inVoice').checked = settings.voice;
+  ui.settingsFields.innerHTML = '';
+  for (const f of currentExercise.fields) {
+    const row = document.createElement('div');
+    row.className = 'field';
+    const label = document.createElement('label');
+    label.htmlFor = 'fld-' + f.key;
+    label.textContent = f.label;
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.id = 'fld-' + f.key;
+    input.min = f.min; input.max = f.max;
+    input.inputMode = 'numeric';
+    input.value = settings[f.key];
+    row.appendChild(label);
+    row.appendChild(input);
+    ui.settingsFields.appendChild(row);
+  }
+  $('inVoice').checked = voiceOn;
   overlay.classList.add('open');
 });
 $('cancelSettingsBtn').addEventListener('click', () => overlay.classList.remove('open'));
 overlay.addEventListener('click', e => { if (e.target === overlay) overlay.classList.remove('open'); });
 
 $('saveSettingsBtn').addEventListener('click', () => {
-  for (const [key, el] of Object.entries(inputs)) {
-    const min = Number(el.min), max = Number(el.max);
-    let v = parseInt(el.value, 10);
-    if (isNaN(v)) v = DEFAULTS[key];
-    settings[key] = Math.min(max, Math.max(min, v));
+  for (const f of currentExercise.fields) {
+    let v = parseInt($('fld-' + f.key).value, 10);
+    if (isNaN(v)) v = f.def;
+    settings[f.key] = Math.min(f.max, Math.max(f.min, v));
   }
-  settings.voice = $('inVoice').checked;
-  saveSettings();
-  ui.voiceBtn.textContent = settings.voice ? '🔊' : '🔇';
+  saveExSettings(currentExercise, settings);
+  voiceOn = $('inVoice').checked;
+  saveVoice();
+  ui.voiceBtn.textContent = voiceOn ? '🔊' : '🔇';
   overlay.classList.remove('open');
   resetToIdle();
 });
@@ -566,8 +809,8 @@ document.addEventListener('visibilitychange', () => {
 });
 
 /* ===== 初始化 ===== */
-ui.voiceBtn.textContent = settings.voice ? '🔊' : '🔇';
-resetToIdle();
+ui.voiceBtn.textContent = voiceOn ? '🔊' : '🔇';
+renderCards();
 </script>
 </body>
 </html>
