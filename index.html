@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f172a">
+<title>踝泵運動計時器</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; }
+  body {
+    font-family: "Microsoft JhengHei", "PingFang TC", "Noto Sans TC", system-ui, sans-serif;
+    background: #0f172a;
+    color: #e2e8f0;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;   /* 舊瀏覽器後備 */
+    height: 100dvh;
+    touch-action: manipulation;
+    user-select: none;
+    -webkit-user-select: none;
+    overflow: hidden;
+    transition: background .4s;
+  }
+  /* 各階段背景微調色，方便遠看辨識 */
+  body[data-phase="up"]    { background: #0c2530; }
+  body[data-phase="down"]  { background: #2b1a0c; }
+  body[data-phase="rest"]  { background: #0e2417; }
+  body[data-phase="prepare"], body[data-phase="switch"] { background: #221f0e; }
+  body[data-phase="done"]  { background: #1b1030; }
+
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    flex: 0 0 auto;
+  }
+  header h1 { font-size: 17px; font-weight: 700; color: #94a3b8; }
+  .icon-btns { display: flex; gap: 8px; }
+  .icon-btn {
+    font-size: 20px;
+    background: #1e293b;
+    border: none;
+    border-radius: 10px;
+    width: 42px; height: 42px;
+    cursor: pointer;
+    color: #e2e8f0;
+  }
+  .icon-btn:disabled { opacity: .35; }
+
+  main {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 8px;
+    padding: 0 16px calc(12px + env(safe-area-inset-bottom));
+    min-height: 0;
+    overflow-y: auto;       /* 內容過高時可捲動，避免按鈕被切掉 */
+    overflow-x: hidden;
+  }
+  /* 空間足夠時均勻分布；不夠時 auto margin 歸零、改為可捲動 */
+  main > * { flex: 0 0 auto; margin-top: auto; margin-bottom: auto; }
+
+  /* 組 / 腳 / 回 資訊列 */
+  .meta-row {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+  }
+  .meta-chip {
+    background: #1e293b;
+    border-radius: 12px;
+    padding: 8px 14px;
+    font-size: 16px;
+    font-weight: 700;
+    color: #cbd5e1;
+    white-space: nowrap;
+  }
+  .meta-chip b { font-size: 20px; color: #f1f5f9; }
+  #footChip { background: #312e81; color: #c7d2fe; font-size: 20px; padding: 8px 18px; }
+
+  /* 動作大字 */
+  #actionLabel {
+    font-size: clamp(44px, 14vw, 72px);
+    font-weight: 900;
+    letter-spacing: 4px;
+    line-height: 1.15;
+    text-align: center;
+    transition: color .2s;
+  }
+  .c-up    { color: #22d3ee; }
+  .c-down  { color: #fb923c; }
+  .c-rest  { color: #4ade80; }
+  .c-warm  { color: #facc15; }
+  .c-done  { color: #c084fc; }
+  .c-idle  { color: #94a3b8; }
+
+  /* 倒數圓環 */
+  .ring-wrap { position: relative; width: min(62vw, 42dvh, 300px); aspect-ratio: 1; }
+  .ring-wrap svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+  .ring-bg   { fill: none; stroke: #1e293b; stroke-width: 12; }
+  .ring-fg   { fill: none; stroke: #22d3ee; stroke-width: 12; stroke-linecap: round; transition: stroke .25s; }
+  #countNum {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: clamp(64px, 22vw, 120px);
+    font-weight: 900;
+    font-variant-numeric: tabular-nums;
+    color: #f8fafc;
+  }
+
+  /* 總進度條 */
+  .progress-wrap { width: 100%; max-width: 420px; }
+  .progress-text { display: flex; justify-content: space-between; font-size: 13px; color: #94a3b8; margin-bottom: 6px; }
+  .progress { width: 100%; height: 10px; background: #1e293b; border-radius: 5px; overflow: hidden; }
+  #progressFill { height: 100%; width: 0%; background: linear-gradient(90deg, #22d3ee, #4ade80); border-radius: 5px; transition: width .2s linear; }
+
+  #hint { font-size: 14px; color: #64748b; text-align: center; }
+
+  /* 控制按鈕：固定吸附在底部，任何螢幕高度都看得到 */
+  .controls {
+    display: flex;
+    gap: 12px;
+    width: 100%;
+    max-width: 420px;
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
+    padding: 8px 0 4px;
+    background: rgba(8, 13, 28, .82);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    border-radius: 16px 16px 0 0;
+  }
+  .btn {
+    flex: 1;
+    border: none;
+    border-radius: 16px;
+    font-size: 24px;
+    font-weight: 800;
+    padding: 18px 0;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .btn:active { transform: scale(.97); }
+  .btn-primary { background: #06b6d4; color: #042f3a; }
+  .btn-primary.is-pause  { background: #f59e0b; color: #3a2503; }
+  .btn-primary.is-resume { background: #4ade80; color: #052e16; }
+  .btn-secondary { background: #334155; color: #e2e8f0; flex: 0 0 32%; font-size: 18px; }
+  .btn-secondary:disabled { opacity: .35; }
+
+  /* 較矮螢幕：縮小各元素，盡量一頁放得下 */
+  @media (max-height: 700px) {
+    header { padding: 6px 14px; }
+    #actionLabel { font-size: clamp(32px, 8vh, 56px); letter-spacing: 2px; }
+    .ring-wrap { width: min(50vw, 32vh, 220px); }
+    #countNum { font-size: clamp(44px, 14vh, 88px); }
+    .meta-chip { padding: 6px 10px; font-size: 14px; }
+    .meta-chip b { font-size: 16px; }
+    #footChip { font-size: 16px; padding: 6px 12px; }
+    #hint { font-size: 12px; }
+    .btn { font-size: 20px; padding: 12px 0; }
+  }
+
+  /* 設定面板 */
+  #settingsOverlay {
+    position: fixed; inset: 0;
+    background: rgba(2, 6, 23, .75);
+    display: none;
+    align-items: flex-end;
+    justify-content: center;
+    z-index: 10;
+  }
+  #settingsOverlay.open { display: flex; }
+  .sheet {
+    background: #1e293b;
+    border-radius: 20px 20px 0 0;
+    width: 100%;
+    max-width: 480px;
+    padding: 20px 20px calc(20px + env(safe-area-inset-bottom));
+  }
+  .sheet h2 { font-size: 18px; margin-bottom: 16px; color: #f1f5f9; }
+  .field {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 0;
+    border-bottom: 1px solid #334155;
+    font-size: 16px;
+  }
+  .field input[type="number"] {
+    width: 86px;
+    font-size: 20px;
+    font-weight: 700;
+    text-align: center;
+    padding: 8px;
+    border-radius: 10px;
+    border: 1px solid #475569;
+    background: #0f172a;
+    color: #f1f5f9;
+    font-family: inherit;
+  }
+  .field input[type="checkbox"] { width: 24px; height: 24px; accent-color: #06b6d4; }
+  .sheet-btns { display: flex; gap: 10px; margin-top: 18px; }
+  .sheet-btns .btn { font-size: 18px; padding: 14px 0; }
+</style>
+</head>
+<body data-phase="idle">
+
+<header>
+  <h1>🦵 踝泵運動計時器</h1>
+  <div class="icon-btns">
+    <button id="voiceBtn" class="icon-btn" title="語音開關">🔊</button>
+    <button id="gearBtn" class="icon-btn" title="設定">⚙️</button>
+  </div>
+</header>
+
+<main>
+  <div class="meta-row">
+    <span class="meta-chip">第 <b id="setNow">-</b> / <span id="setTotal">-</span> 組</span>
+    <span class="meta-chip" id="footChip">準備</span>
+    <span class="meta-chip">第 <b id="repNow">-</b> / <span id="repTotal">-</span> 回</span>
+  </div>
+
+  <div id="actionLabel" class="c-idle">準備好了嗎？</div>
+
+  <div class="ring-wrap">
+    <svg viewBox="0 0 200 200">
+      <circle class="ring-bg" cx="100" cy="100" r="90"></circle>
+      <circle class="ring-fg" id="ringFg" cx="100" cy="100" r="90"
+              stroke-dasharray="565.49" stroke-dashoffset="0"></circle>
+    </svg>
+    <div id="countNum">🦶</div>
+  </div>
+
+  <div class="progress-wrap">
+    <div class="progress-text"><span>總進度</span><span id="progressPct">0%</span></div>
+    <div class="progress"><div id="progressFill"></div></div>
+  </div>
+
+  <div id="hint"></div>
+
+  <div class="controls">
+    <button id="mainBtn" class="btn btn-primary">開始</button>
+    <button id="resetBtn" class="btn btn-secondary" disabled>重新開始</button>
+  </div>
+</main>
+
+<div id="settingsOverlay">
+  <div class="sheet">
+    <h2>⚙️ 設定</h2>
+    <div class="field"><label for="inUp">腳尖勾起秒數</label><input id="inUp" type="number" min="1" max="60" inputmode="numeric"></div>
+    <div class="field"><label for="inDown">腳尖下壓秒數</label><input id="inDown" type="number" min="1" max="60" inputmode="numeric"></div>
+    <div class="field"><label for="inReps">每腳回數</label><input id="inReps" type="number" min="1" max="99" inputmode="numeric"></div>
+    <div class="field"><label for="inSets">組數（兩腳=1組）</label><input id="inSets" type="number" min="1" max="20" inputmode="numeric"></div>
+    <div class="field"><label for="inRest">組間休息秒數</label><input id="inRest" type="number" min="0" max="600" inputmode="numeric"></div>
+    <div class="field"><label for="inVoice">語音播報</label><input id="inVoice" type="checkbox"></div>
+    <div class="sheet-btns">
+      <button id="cancelSettingsBtn" class="btn btn-secondary" style="flex:1">取消</button>
+      <button id="saveSettingsBtn" class="btn btn-primary" style="flex:2">儲存</button>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+/* ===== 設定（localStorage） ===== */
+const STORAGE_KEY = 'anklepump-settings';
+const DEFAULTS = { upSec: 5, downSec: 5, reps: 20, sets: 3, restSec: 30, voice: true };
+
+function loadSettings() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) return { ...DEFAULTS, ...JSON.parse(raw) };
+  } catch (e) { /* 私密模式等情況下忽略 */ }
+  return { ...DEFAULTS };
+}
+function saveSettings() {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(settings)); } catch (e) { /* ignore */ }
+}
+let settings = loadSettings();
+
+/* ===== 語音（Web Speech API） ===== */
+let zhVoice = null;
+function pickVoice() {
+  const voices = speechSynthesis.getVoices();
+  zhVoice = voices.find(v => /^zh[-_]?(TW|Hant)/i.test(v.lang))
+         || voices.find(v => /^zh/i.test(v.lang)) || null;
+}
+if ('speechSynthesis' in window) {
+  pickVoice();
+  speechSynthesis.onvoiceschanged = pickVoice;
+}
+function speak(text) {
+  if (!settings.voice || !('speechSynthesis' in window) || !text) return;
+  speechSynthesis.cancel(); // 避免播報重疊堆積
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = 'zh-TW';
+  if (zhVoice) u.voice = zhVoice;
+  u.rate = 1.05;
+  speechSynthesis.speak(u);
+}
+function stopSpeak() {
+  if ('speechSynthesis' in window) speechSynthesis.cancel();
+}
+
+/* ===== 螢幕常亮（Wake Lock） ===== */
+let wakeLock = null;
+async function requestWakeLock() {
+  if (!('wakeLock' in navigator)) return;
+  try {
+    wakeLock = await navigator.wakeLock.request('screen');
+  } catch (e) { /* 不支援或被拒，靜默降級 */ }
+}
+function releaseWakeLock() {
+  if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
+}
+
+/* ===== 流程步驟產生 ===== */
+const FOOT_NAME = { left: '左腳', right: '右腳' };
+
+function buildSteps(s) {
+  const steps = [];
+  for (let set = 1; set <= s.sets; set++) {
+    steps.push({
+      phase: 'prepare', set, foot: 'left', rep: 0, duration: 3,
+      label: '準備', speak: set === 1 ? '準備，左腳開始' : `第${set}組，左腳開始`
+    });
+    for (const foot of ['left', 'right']) {
+      if (foot === 'right') {
+        steps.push({
+          phase: 'switch', set, foot, rep: 0, duration: 3,
+          label: '換腳', speak: '換腳，右腳開始'
+        });
+      }
+      for (let rep = 1; rep <= s.reps; rep++) {
+        const remain = s.reps - rep + 1;
+        let upSpeak = '勾起';
+        if (remain === 1) upSpeak = '勾起，最後一回';
+        else if (remain <= 3) upSpeak = `勾起，剩${remain}回`;
+        steps.push({ phase: 'up', set, foot, rep, duration: s.upSec, label: '勾起 ↑', speak: upSpeak });
+        steps.push({ phase: 'down', set, foot, rep, duration: s.downSec, label: '下壓 ↓', speak: '下壓' });
+      }
+    }
+    if (set < s.sets && s.restSec > 0) {
+      steps.push({
+        phase: 'rest', set, foot: 'left', rep: 0, duration: s.restSec,
+        label: '休息', speak: `這組完成，休息${s.restSec}秒`
+      });
+    }
+  }
+  return steps;
+}
+
+/* ===== 計時引擎（timestamp-based，防飄移） ===== */
+const PHASE_COLOR = { up: '#22d3ee', down: '#fb923c', rest: '#4ade80', prepare: '#facc15', switch: '#facc15' };
+const PHASE_CLASS = { up: 'c-up', down: 'c-down', rest: 'c-rest', prepare: 'c-warm', switch: 'c-warm' };
+const CIRCUMFERENCE = 565.49;
+
+let steps = [];
+let stepIndex = 0;
+let running = false;
+let paused = false;
+let phaseStart = 0;      // 本步驟開始時間（performance.now）
+let pausedAt = 0;
+let elapsedBefore = 0;   // 已完成步驟的累計秒數
+let totalDuration = 0;
+let tickTimer = null;
+let restCueDone = false; // 休息剩 3 秒提示旗標
+
+const $ = id => document.getElementById(id);
+const ui = {
+  setNow: $('setNow'), setTotal: $('setTotal'),
+  repNow: $('repNow'), repTotal: $('repTotal'),
+  footChip: $('footChip'), actionLabel: $('actionLabel'),
+  countNum: $('countNum'), ringFg: $('ringFg'),
+  progressFill: $('progressFill'), progressPct: $('progressPct'),
+  hint: $('hint'), mainBtn: $('mainBtn'), resetBtn: $('resetBtn'),
+  voiceBtn: $('voiceBtn'), gearBtn: $('gearBtn'),
+};
+
+function startWorkout() {
+  steps = buildSteps(settings);
+  totalDuration = steps.reduce((sum, st) => sum + st.duration, 0);
+  stepIndex = 0;
+  elapsedBefore = 0;
+  running = true;
+  paused = false;
+  ui.mainBtn.textContent = '暫停';
+  ui.mainBtn.className = 'btn btn-primary is-pause';
+  ui.resetBtn.disabled = false;
+  ui.gearBtn.disabled = true;
+  requestWakeLock();
+  enterStep(0);
+  tickTimer = setInterval(tick, 100);
+}
+
+function enterStep(i) {
+  const st = steps[i];
+  phaseStart = performance.now();
+  restCueDone = false;
+  document.body.dataset.phase = st.phase;
+  ui.setNow.textContent = st.set;
+  ui.setTotal.textContent = settings.sets;
+  ui.repNow.textContent = st.rep > 0 ? st.rep : '-';
+  ui.repTotal.textContent = settings.reps;
+  ui.footChip.textContent = st.phase === 'rest' ? '休息' : FOOT_NAME[st.foot];
+  ui.actionLabel.textContent = st.label;
+  ui.actionLabel.className = PHASE_CLASS[st.phase];
+  ui.ringFg.style.stroke = PHASE_COLOR[st.phase];
+  ui.countNum.textContent = st.duration;
+  speak(st.speak);
+}
+
+function tick() {
+  if (paused || !running) return;
+  const st = steps[stepIndex];
+  const elapsed = (performance.now() - phaseStart) / 1000;
+  const remaining = st.duration - elapsed;
+
+  if (remaining <= 0) {
+    elapsedBefore += st.duration;
+    stepIndex++;
+    if (stepIndex >= steps.length) { finishWorkout(); return; }
+    enterStep(stepIndex);
+    return;
+  }
+  ui.countNum.textContent = Math.ceil(remaining);
+  ui.ringFg.style.strokeDashoffset = (CIRCUMFERENCE * (1 - remaining / st.duration)).toFixed(1);
+  const pct = Math.min(100, (elapsedBefore + elapsed) / totalDuration * 100);
+  ui.progressFill.style.width = pct + '%';
+  ui.progressPct.textContent = Math.floor(pct) + '%';
+  // 休息剩 3 秒語音提醒
+  if (st.phase === 'rest' && remaining <= 3.2 && !restCueDone) {
+    restCueDone = true;
+    speak('準備繼續');
+  }
+}
+
+function pauseWorkout() {
+  paused = true;
+  pausedAt = performance.now();
+  stopSpeak();
+  ui.mainBtn.textContent = '繼續';
+  ui.mainBtn.className = 'btn btn-primary is-resume';
+}
+
+function resumeWorkout() {
+  phaseStart += performance.now() - pausedAt;
+  paused = false;
+  ui.mainBtn.textContent = '暫停';
+  ui.mainBtn.className = 'btn btn-primary is-pause';
+}
+
+function finishWorkout() {
+  stopEngine();
+  document.body.dataset.phase = 'done';
+  ui.actionLabel.textContent = '🎉 完成！';
+  ui.actionLabel.className = 'c-done';
+  ui.countNum.textContent = '👍';
+  ui.ringFg.style.strokeDashoffset = 0;
+  ui.ringFg.style.stroke = '#c084fc';
+  ui.progressFill.style.width = '100%';
+  ui.progressPct.textContent = '100%';
+  ui.footChip.textContent = '完成';
+  ui.mainBtn.textContent = '再做一次';
+  ui.mainBtn.className = 'btn btn-primary';
+  ui.resetBtn.disabled = true;
+  speak('運動完成，做得好！');
+}
+
+function stopEngine() {
+  running = false;
+  paused = false;
+  clearInterval(tickTimer);
+  tickTimer = null;
+  releaseWakeLock();
+  ui.gearBtn.disabled = false;
+}
+
+function resetToIdle() {
+  stopEngine();
+  stopSpeak();
+  document.body.dataset.phase = 'idle';
+  ui.setNow.textContent = '-';
+  ui.setTotal.textContent = settings.sets;
+  ui.repNow.textContent = '-';
+  ui.repTotal.textContent = settings.reps;
+  ui.footChip.textContent = '準備';
+  ui.actionLabel.textContent = '準備好了嗎？';
+  ui.actionLabel.className = 'c-idle';
+  ui.countNum.textContent = '🦶';
+  ui.ringFg.style.strokeDashoffset = 0;
+  ui.ringFg.style.stroke = '#22d3ee';
+  ui.progressFill.style.width = '0%';
+  ui.progressPct.textContent = '0%';
+  ui.mainBtn.textContent = '開始';
+  ui.mainBtn.className = 'btn btn-primary';
+  ui.resetBtn.disabled = true;
+  updateHint();
+}
+
+function updateHint() {
+  ui.hint.textContent =
+    `勾起 ${settings.upSec} 秒｜下壓 ${settings.downSec} 秒｜每腳 ${settings.reps} 回｜${settings.sets} 組｜休息 ${settings.restSec} 秒`;
+}
+
+/* ===== 按鈕事件 ===== */
+ui.mainBtn.addEventListener('click', () => {
+  if (!running) startWorkout();
+  else if (paused) resumeWorkout();
+  else pauseWorkout();
+});
+
+ui.resetBtn.addEventListener('click', () => {
+  if (running && !confirm('確定要重新開始嗎？')) return;
+  resetToIdle();
+});
+
+ui.voiceBtn.addEventListener('click', () => {
+  settings.voice = !settings.voice;
+  saveSettings();
+  ui.voiceBtn.textContent = settings.voice ? '🔊' : '🔇';
+  if (!settings.voice) stopSpeak();
+});
+
+/* ===== 設定面板 ===== */
+const overlay = $('settingsOverlay');
+const inputs = { upSec: $('inUp'), downSec: $('inDown'), reps: $('inReps'), sets: $('inSets'), restSec: $('inRest') };
+
+ui.gearBtn.addEventListener('click', () => {
+  for (const [key, el] of Object.entries(inputs)) el.value = settings[key];
+  $('inVoice').checked = settings.voice;
+  overlay.classList.add('open');
+});
+$('cancelSettingsBtn').addEventListener('click', () => overlay.classList.remove('open'));
+overlay.addEventListener('click', e => { if (e.target === overlay) overlay.classList.remove('open'); });
+
+$('saveSettingsBtn').addEventListener('click', () => {
+  for (const [key, el] of Object.entries(inputs)) {
+    const min = Number(el.min), max = Number(el.max);
+    let v = parseInt(el.value, 10);
+    if (isNaN(v)) v = DEFAULTS[key];
+    settings[key] = Math.min(max, Math.max(min, v));
+  }
+  settings.voice = $('inVoice').checked;
+  saveSettings();
+  ui.voiceBtn.textContent = settings.voice ? '🔊' : '🔇';
+  overlay.classList.remove('open');
+  resetToIdle();
+});
+
+/* ===== 頁面可見性：切到背景自動暫停、回前景恢復 Wake Lock ===== */
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    if (running && !paused) pauseWorkout();
+  } else if (running) {
+    requestWakeLock();
+  }
+});
+
+/* ===== 初始化 ===== */
+ui.voiceBtn.textContent = settings.voice ? '🔊' : '🔇';
+resetToIdle();
+</script>
+</body>
+</html>
