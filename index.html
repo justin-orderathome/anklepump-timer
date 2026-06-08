@@ -286,6 +286,35 @@
   .field input[type="checkbox"] { width: 24px; height: 24px; accent-color: #06b6d4; }
   .sheet-btns { display: flex; gap: 10px; margin-top: 18px; }
   .sheet-btns .btn { font-size: 18px; padding: 14px 0; }
+
+  /* 提醒面板 */
+  #remindersOverlay {
+    position: fixed; inset: 0;
+    background: rgba(2, 6, 23, .75);
+    display: none;
+    align-items: flex-end;
+    justify-content: center;
+    z-index: 10;
+  }
+  #remindersOverlay.open { display: flex; }
+  .rem-ex { padding: 12px 0; border-bottom: 1px solid #334155; }
+  .rem-ex-head { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 700; color: #f1f5f9; margin-bottom: 8px; }
+  .rem-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+  .rem-chip { display: inline-flex; align-items: center; gap: 6px; background: #0f172a; border: 1px solid #475569; border-radius: 999px; padding: 4px 6px 4px 12px; font-size: 15px; color: #e2e8f0; }
+  .rem-chip button { background: #334155; border: none; color: #e2e8f0; width: 22px; height: 22px; border-radius: 999px; cursor: pointer; font-size: 13px; line-height: 1; }
+  .rem-empty { color: #64748b; font-size: 13px; }
+  .rem-add { display: flex; gap: 8px; align-items: center; }
+  .rem-add input[type="time"] { font-size: 16px; padding: 6px 8px; border-radius: 10px; border: 1px solid #475569; background: #0f172a; color: #f1f5f9; font-family: inherit; }
+  .rem-add-btn { background: #334155; color: #e2e8f0; border: none; border-radius: 10px; padding: 8px 14px; font-size: 14px; font-weight: 700; cursor: pointer; }
+  .rem-actions { display: flex; flex-direction: column; gap: 10px; margin-top: 16px; }
+  .rem-actions .btn { font-size: 17px; padding: 14px 0; }
+  .btn-ghost { background: #334155; color: #e2e8f0; }
+  .btn-danger { background: #7f1d1d; color: #fecaca; }
+  .rem-row2 { display: flex; gap: 10px; }
+  .rem-row2 .btn { flex: 1; }
+  .rem-glinks { display: flex; flex-direction: column; gap: 6px; }
+  .rem-glink { font-size: 14px; color: #67e8f9; text-decoration: none; background: #0f172a; border: 1px solid #334155; border-radius: 10px; padding: 9px 12px; }
+  .rem-note { font-size: 12px; color: #64748b; margin-top: 14px; line-height: 1.7; }
 </style>
 </head>
 <body data-phase="idle">
@@ -294,6 +323,7 @@
   <button id="backBtn" class="icon-btn hidden" title="返回選單">←</button>
   <h1 id="headerTitle">🦵 下肢訓練計時器</h1>
   <button id="logBtn" class="icon-btn" title="訓練紀錄">📋</button>
+  <button id="remindBtn" class="icon-btn" title="行事曆提醒">🔔</button>
   <button id="voiceBtn" class="icon-btn" title="語音開關">🔊</button>
   <button id="gearBtn" class="icon-btn hidden" title="設定">⚙️</button>
 </header>
@@ -354,6 +384,25 @@
       <button id="cancelSettingsBtn" class="btn btn-secondary" style="flex:1">取消</button>
       <button id="saveSettingsBtn" class="btn btn-primary" style="flex:2">儲存</button>
     </div>
+  </div>
+</div>
+
+<div id="remindersOverlay">
+  <div class="sheet">
+    <h2>🔔 行事曆提醒</h2>
+    <div id="remList"></div>
+    <div class="rem-actions">
+      <button id="icsMainBtn" class="btn btn-primary">下載／更新行事曆提醒</button>
+      <div id="gLinks" class="rem-glinks"></div>
+      <button id="icsCancelBtn" class="btn btn-danger">取消全部提醒</button>
+      <div class="rem-row2">
+        <button id="cfgExportBtn" class="btn btn-ghost">匯出設定</button>
+        <button id="cfgImportBtn" class="btn btn-ghost">匯入設定</button>
+      </div>
+      <button id="remCloseBtn" class="btn btn-secondary">關閉</button>
+    </div>
+    <div id="remNote" class="rem-note"></div>
+    <input id="cfgFileInput" type="file" accept="application/json" class="hidden">
   </div>
 </div>
 
@@ -545,6 +594,200 @@ function saveVoice() {
   try { localStorage.setItem(VOICE_KEY, voiceOn ? '1' : '0'); } catch (e) { /* ignore */ }
 }
 
+/* ===== 行事曆提醒（localStorage） ===== */
+const REMINDERS_KEY = 'apt-reminders';
+const ICS_STATE_KEY = 'apt-ics-state';
+
+function loadReminders() {
+  try { return JSON.parse(localStorage.getItem(REMINDERS_KEY) || '{}'); } catch (e) { return {}; }
+}
+function saveReminders(r) {
+  try { localStorage.setItem(REMINDERS_KEY, JSON.stringify(r)); } catch (e) { /* ignore */ }
+}
+function loadIcsState() {
+  try {
+    const s = JSON.parse(localStorage.getItem(ICS_STATE_KEY) || '{}');
+    return { seq: s.seq || 0, exported: s.exported || {} };
+  } catch (e) { return { seq: 0, exported: {} }; }
+}
+function saveIcsState(s) {
+  try { localStorage.setItem(ICS_STATE_KEY, JSON.stringify(s)); } catch (e) { /* ignore */ }
+}
+function genId() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+}
+
+/* 執行環境偵測：給最順的行事曆匯入路徑 */
+function detectEnv() {
+  const ua = navigator.userAgent || '';
+  const isIOS = /iPad|iPhone|iPod/.test(ua) ||
+                (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (isIOS) return 'ios';
+  if (/Android/i.test(ua)) return 'android';
+  return 'desktop';
+}
+
+/* ===== .ics 行事曆產生 ===== */
+const ICS_PRODID = '-//anklepump-timer//下肢訓練計時器//ZH-TW';
+function pad2(n) { return String(n).padStart(2, '0'); }
+/* floating local time（不帶時區，代表「裝置當地每天的這個牆鐘時刻」） */
+function icsDateLocal(d) {
+  return `${d.getFullYear()}${pad2(d.getMonth() + 1)}${pad2(d.getDate())}T${pad2(d.getHours())}${pad2(d.getMinutes())}${pad2(d.getSeconds())}`;
+}
+/* DTSTAMP 用 UTC */
+function icsStampUTC(d) {
+  return `${d.getUTCFullYear()}${pad2(d.getUTCMonth() + 1)}${pad2(d.getUTCDate())}T${pad2(d.getUTCHours())}${pad2(d.getUTCMinutes())}${pad2(d.getUTCSeconds())}Z`;
+}
+function icsEscape(s) {
+  return String(s).replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\n/g, '\\n');
+}
+function uidOf(slotId) { return `apt-${slotId}@anklepump-timer`; }
+function deepLink(exId) { return location.href.split('#')[0] + '#' + exId; }
+/* 以「今天 + HH:MM」當 DTSTART 起點，每天重複；事件長度 10 分鐘 */
+function startEndOf(time) {
+  const [h, m] = time.split(':').map(Number);
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m, 0);
+  const end = new Date(start.getTime() + 10 * 60000);
+  return { start, end };
+}
+function buildVEVENT({ uid, seq, time, summary, url, cancelled }) {
+  const { start, end } = startEndOf(time);
+  const lines = [
+    'BEGIN:VEVENT',
+    `UID:${uid}`,
+    `SEQUENCE:${seq}`,
+    `DTSTAMP:${icsStampUTC(new Date())}`,
+    `DTSTART:${icsDateLocal(start)}`,
+    `DTEND:${icsDateLocal(end)}`,
+    'RRULE:FREQ=DAILY',
+    `SUMMARY:${icsEscape(summary)}`,
+  ];
+  if (url) {
+    lines.push(`URL:${icsEscape(url)}`);
+    lines.push(`DESCRIPTION:${icsEscape('點我開始：' + url)}`);
+  }
+  if (cancelled) {
+    lines.push('STATUS:CANCELLED');
+  } else {
+    lines.push('BEGIN:VALARM', 'ACTION:DISPLAY', 'TRIGGER:PT0S', `DESCRIPTION:${icsEscape(summary)}`, 'END:VALARM');
+  }
+  lines.push('END:VEVENT');
+  return lines;
+}
+function buildICS({ method, events }) {
+  let out = ['BEGIN:VCALENDAR', 'VERSION:2.0', `PRODID:${ICS_PRODID}`, 'CALSCALE:GREGORIAN', `METHOD:${method}`];
+  for (const ev of events) out = out.concat(ev);
+  out.push('END:VCALENDAR');
+  return out.join('\r\n') + '\r\n';
+}
+function downloadFile(filename, text, mime) {
+  const blob = new Blob([text], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/* 目前所有 active 提醒時段：[{ exId, ex, slot }] */
+function activeSlots() {
+  const rem = loadReminders();
+  const out = [];
+  for (const ex of EXERCISES) {
+    for (const slot of (rem[ex.id] || [])) out.push({ exId: ex.id, ex, slot });
+  }
+  return out;
+}
+function summaryOf(ex) { return `${ex.emoji} 該做${ex.name}了`; }
+
+/* 下載／更新：覆蓋目前時段，並把已刪掉的舊事件標記取消 */
+function exportReminders() {
+  const slots = activeSlots();
+  const st = loadIcsState();
+  st.seq = (st.seq || 0) + 1;
+  const events = [];
+  const nowExported = {};
+  for (const { ex, slot } of slots) {
+    const uid = uidOf(slot.id);
+    nowExported[uid] = slot.time;
+    events.push(buildVEVENT({ uid, seq: st.seq, time: slot.time, summary: summaryOf(ex), url: deepLink(ex.id) }));
+  }
+  for (const uid in st.exported) {
+    if (!(uid in nowExported)) {
+      events.push(buildVEVENT({ uid, seq: st.seq, time: st.exported[uid], summary: '提醒已移除', cancelled: true }));
+    }
+  }
+  if (events.length === 0) { alert('還沒有任何提醒時段，先新增時間吧！'); return; }
+  st.exported = nowExported;
+  saveIcsState(st);
+  downloadFile('下肢訓練提醒.ics', buildICS({ method: 'REQUEST', events }), 'text/calendar;charset=utf-8');
+}
+
+/* 取消全部：對所有曾匯出的 UID 發出 CANCEL */
+function cancelAllReminders() {
+  const st = loadIcsState();
+  const uids = Object.keys(st.exported || {});
+  if (uids.length === 0) { alert('目前沒有已匯出的提醒可取消。'); return; }
+  st.seq = (st.seq || 0) + 1;
+  const events = uids.map(uid => buildVEVENT({ uid, seq: st.seq, time: st.exported[uid], summary: '提醒已取消', cancelled: true }));
+  st.exported = {};
+  saveIcsState(st);
+  downloadFile('取消提醒.ics', buildICS({ method: 'CANCEL', events }), 'text/calendar;charset=utf-8');
+}
+
+/* Google 行事曆一鍵連結（每個時段一條） */
+function googleLink(ex, time) {
+  const { start, end } = startEndOf(time);
+  const params = new URLSearchParams({
+    action: 'TEMPLATE',
+    text: summaryOf(ex),
+    dates: `${icsDateLocal(start)}/${icsDateLocal(end)}`,
+    details: '點我開始：' + deepLink(ex.id),
+    recur: 'RRULE:FREQ=DAILY',
+  });
+  return 'https://calendar.google.com/calendar/render?' + params.toString();
+}
+
+/* 設定匯出／匯入（JSON，跨裝置搬移編輯端） */
+function exportConfig() {
+  const exerciseSettings = {};
+  for (const ex of EXERCISES) {
+    try {
+      const raw = localStorage.getItem(SETTINGS_PREFIX + ex.id);
+      if (raw) exerciseSettings[ex.id] = JSON.parse(raw);
+    } catch (e) { /* ignore */ }
+  }
+  const cfg = { app: 'anklepump-timer', version: 2, reminders: loadReminders(), exerciseSettings, voice: voiceOn };
+  downloadFile('下肢訓練設定.json', JSON.stringify(cfg, null, 2), 'application/json');
+}
+function importConfig(file) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const cfg = JSON.parse(reader.result);
+      if (cfg.reminders && typeof cfg.reminders === 'object') saveReminders(cfg.reminders);
+      if (cfg.exerciseSettings && typeof cfg.exerciseSettings === 'object') {
+        for (const ex of EXERCISES) {
+          if (cfg.exerciseSettings[ex.id]) saveExSettings(ex, Object.assign(defaultsOf(ex), cfg.exerciseSettings[ex.id]));
+        }
+      }
+      if (typeof cfg.voice === 'boolean') {
+        voiceOn = cfg.voice; saveVoice(); ui.voiceBtn.textContent = voiceOn ? '🔊' : '🔇';
+      }
+      renderReminders();
+      renderCards();
+      alert('設定已匯入！');
+    } catch (e) {
+      alert('匯入失敗：檔案格式不正確。');
+    }
+  };
+  reader.readAsText(file);
+}
+
 /* ===== 訓練紀錄（localStorage，每天各訓練完成組數） ===== */
 const LOG_KEY = 'apt-log';
 function loadLog() {
@@ -634,7 +877,7 @@ let tickTimer = null;
 const $ = id => document.getElementById(id);
 const ui = {
   homeScreen: $('homeScreen'), boardScreen: $('boardScreen'), cardList: $('cardList'),
-  logScreen: $('logScreen'), logBtn: $('logBtn'), streakBanner: $('streakBanner'), logList: $('logList'),
+  logScreen: $('logScreen'), logBtn: $('logBtn'), remindBtn: $('remindBtn'), streakBanner: $('streakBanner'), logList: $('logList'),
   headerTitle: $('headerTitle'), backBtn: $('backBtn'),
   setNow: $('setNow'), setTotal: $('setTotal'),
   repChip: $('repChip'), repNow: $('repNow'), repTotal: $('repTotal'),
@@ -805,6 +1048,7 @@ function openExercise(ex) {
   ui.backBtn.classList.remove('hidden');
   ui.gearBtn.classList.remove('hidden');
   ui.logBtn.classList.add('hidden');
+  ui.remindBtn.classList.add('hidden');
   resetToIdle();
 }
 
@@ -821,6 +1065,7 @@ function goHome() {
   ui.backBtn.classList.add('hidden');
   ui.gearBtn.classList.add('hidden');
   ui.logBtn.classList.remove('hidden');
+  ui.remindBtn.classList.remove('hidden');
   renderCards(); // 重新整理卡片上的設定摘要與今日組數
   ui.homeScreen.classList.remove('hidden');
 }
@@ -873,7 +1118,132 @@ function openLog() {
   ui.logScreen.classList.remove('hidden');
   ui.backBtn.classList.remove('hidden');
   ui.logBtn.classList.add('hidden');
+  ui.remindBtn.classList.add('hidden');
 }
+
+/* ===== 提醒面板 ===== */
+function addSlot(exId, time) {
+  if (!/^\d{2}:\d{2}$/.test(time)) return;
+  const rem = loadReminders();
+  if (!rem[exId]) rem[exId] = [];
+  if (rem[exId].some(s => s.time === time)) return; // 不重複
+  rem[exId].push({ id: genId(), time });
+  rem[exId].sort((a, b) => a.time.localeCompare(b.time));
+  saveReminders(rem);
+  renderReminders();
+}
+function removeSlot(exId, slotId) {
+  const rem = loadReminders();
+  if (!rem[exId]) return;
+  rem[exId] = rem[exId].filter(s => s.id !== slotId);
+  if (rem[exId].length === 0) delete rem[exId];
+  saveReminders(rem);
+  renderReminders();
+}
+function renderGoogleLinks() {
+  const wrap = $('gLinks');
+  wrap.innerHTML = '';
+  for (const { ex, slot } of activeSlots()) {
+    const a = document.createElement('a');
+    a.className = 'rem-glink';
+    a.href = googleLink(ex, slot.time);
+    a.target = '_blank'; a.rel = 'noopener';
+    a.textContent = `📅 加到 Google 行事曆：${slot.time} ${ex.name}`;
+    wrap.appendChild(a);
+  }
+}
+function renderReminders() {
+  const rem = loadReminders();
+  const list = $('remList');
+  list.innerHTML = '';
+  for (const ex of EXERCISES) {
+    const arr = rem[ex.id] || [];
+    const box = document.createElement('div');
+    box.className = 'rem-ex';
+
+    const head = document.createElement('div');
+    head.className = 'rem-ex-head';
+    head.textContent = `${ex.emoji} ${ex.name}`;
+    box.appendChild(head);
+
+    const chips = document.createElement('div');
+    chips.className = 'rem-chips';
+    if (arr.length === 0) {
+      const e = document.createElement('span');
+      e.className = 'rem-empty';
+      e.textContent = '尚未設定提醒時間';
+      chips.appendChild(e);
+    } else {
+      for (const slot of arr) {
+        const chip = document.createElement('span');
+        chip.className = 'rem-chip';
+        chip.append(slot.time);
+        const del = document.createElement('button');
+        del.type = 'button';
+        del.textContent = '✕';
+        del.title = '刪除';
+        del.addEventListener('click', () => removeSlot(ex.id, slot.id));
+        chip.appendChild(del);
+        chips.appendChild(chip);
+      }
+    }
+    box.appendChild(chips);
+
+    const add = document.createElement('div');
+    add.className = 'rem-add';
+    const input = document.createElement('input');
+    input.type = 'time';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'rem-add-btn';
+    btn.textContent = '＋ 新增時間';
+    btn.addEventListener('click', () => { if (input.value) addSlot(ex.id, input.value); });
+    add.appendChild(input);
+    add.appendChild(btn);
+    box.appendChild(add);
+
+    list.appendChild(box);
+  }
+  renderGoogleLinks();
+}
+
+const remOverlay = $('remindersOverlay');
+function openReminders() {
+  const env = detectEnv();
+  const mainBtn = $('icsMainBtn');
+  if (env === 'ios') mainBtn.textContent = '加入 iPhone 行事曆';
+  else if (env === 'android') mainBtn.textContent = '下載並加入 Google 行事曆';
+  else mainBtn.textContent = '下載 .ics（Apple／Outlook）';
+
+  const tips = {
+    ios: '提示：請用 Safari 開啟本頁；下載後會跳出「加入行事曆」，選好行事曆即可。',
+    android: '提示：下載後點開 .ics，選 Google 日曆匯入。',
+    desktop: '提示：下載 .ics 後雙擊匯入 Apple／Outlook；Google 行事曆請用「設定→匯入」。',
+  };
+  $('remNote').innerHTML =
+    tips[env] +
+    '<br>・改了時間重新下載匯入會覆蓋舊提醒（Apple／Outlook／Google 皆可）。' +
+    '<br>・刪掉時段重新下載可移除；Google 對「取消」匯入較不穩定，必要時請手動刪除。' +
+    '<br>・通知點開可直接跳回運動頁（需網站部署在網址上，本機 file:// 無效）。' +
+    '<br>・不想下載檔案？用上方「加到 Google 行事曆」一鍵連結（採 Google 帳號預設提醒）。';
+
+  renderReminders();
+  remOverlay.classList.add('open');
+}
+ui.remindBtn.addEventListener('click', openReminders);
+$('remCloseBtn').addEventListener('click', () => remOverlay.classList.remove('open'));
+remOverlay.addEventListener('click', e => { if (e.target === remOverlay) remOverlay.classList.remove('open'); });
+$('icsMainBtn').addEventListener('click', exportReminders);
+$('icsCancelBtn').addEventListener('click', () => {
+  if (confirm('要產生「取消全部提醒」的檔案嗎？匯入後行事曆中的提醒會被移除。')) cancelAllReminders();
+});
+$('cfgExportBtn').addEventListener('click', exportConfig);
+$('cfgImportBtn').addEventListener('click', () => $('cfgFileInput').click());
+$('cfgFileInput').addEventListener('change', e => {
+  const f = e.target.files && e.target.files[0];
+  if (f) importConfig(f);
+  e.target.value = '';
+});
 
 /* ===== 按鈕事件 ===== */
 ui.mainBtn.addEventListener('click', () => {
@@ -950,6 +1320,14 @@ document.addEventListener('visibilitychange', () => {
 /* ===== 初始化 ===== */
 ui.voiceBtn.textContent = voiceOn ? '🔊' : '🔇';
 renderCards();
+
+/* 深連結：行事曆提醒點開 index.html#<exId> 直接進入該運動頁 */
+(function handleDeepLink() {
+  const id = (location.hash || '').replace(/^#/, '');
+  if (!id) return;
+  const ex = EXERCISES.find(e => e.id === id);
+  if (ex) openExercise(ex);
+})();
 </script>
 </body>
 </html>
