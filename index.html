@@ -315,6 +315,25 @@
   .rem-glinks { display: flex; flex-direction: column; gap: 6px; }
   .rem-glink { font-size: 14px; color: #67e8f9; text-decoration: none; background: #0f172a; border: 1px solid #334155; border-radius: 10px; padding: 9px 12px; }
   .rem-note { font-size: 12px; color: #64748b; margin-top: 14px; line-height: 1.7; }
+
+  /* 強力鬧鐘引導 */
+  #alarmGuideOverlay {
+    position: fixed; inset: 0;
+    background: rgba(2, 6, 23, .8);
+    display: none;
+    align-items: flex-end;
+    justify-content: center;
+    z-index: 11;
+  }
+  #alarmGuideOverlay.open { display: flex; }
+  .guide-copy { background: #334155; color: #e2e8f0; border: none; border-radius: 10px; padding: 11px 14px; font-size: 14px; font-weight: 700; cursor: pointer; width: 100%; margin: 4px 0 8px; }
+  .guide-sec { padding: 12px 0; border-bottom: 1px solid #334155; }
+  .guide-sec h3 { font-size: 15px; color: #f1f5f9; margin-bottom: 6px; }
+  .guide-sec.active h3 { color: #67e8f9; }
+  .guide-sec ol { margin: 0 0 0 18px; font-size: 13px; color: #cbd5e1; line-height: 1.75; }
+  .guide-sec a { color: #67e8f9; }
+  .guide-badge { display: none; font-size: 11px; background: #155e75; color: #a5f3fc; border-radius: 6px; padding: 2px 8px; margin-left: 6px; vertical-align: middle; }
+  .guide-sec.active .guide-badge { display: inline-block; }
 </style>
 </head>
 <body data-phase="idle">
@@ -394,6 +413,7 @@
     <div class="rem-actions">
       <button id="icsMainBtn" class="btn btn-primary">下載／更新行事曆提醒</button>
       <div id="gLinks" class="rem-glinks"></div>
+      <button id="alarmGuideBtn" class="btn btn-ghost">💪 讓提醒變成真正鬧鐘（穿透靜音）</button>
       <button id="icsCancelBtn" class="btn btn-danger">取消全部提醒</button>
       <div class="rem-row2">
         <button id="cfgExportBtn" class="btn btn-ghost">匯出設定</button>
@@ -403,6 +423,53 @@
     </div>
     <div id="remNote" class="rem-note"></div>
     <input id="cfgFileInput" type="file" accept="application/json" class="hidden">
+  </div>
+</div>
+
+<div id="alarmGuideOverlay">
+  <div class="sheet">
+    <h2>💪 讓提醒變成真正鬧鐘</h2>
+    <p class="rem-note" style="margin-top:0">行事曆提醒是「通知」，聲音小、會被靜音。下面用<strong>免費</strong> App 把它升級成會<strong>穿透靜音／勿擾</strong>的真鬧鐘。請先用上一頁「下載／更新行事曆提醒」把提醒匯入行事曆。</p>
+    <button id="guideCopyBtn" class="guide-copy">📋 複製所有提醒時間</button>
+
+    <div class="guide-sec" data-env="android">
+      <h3>Android（免費）<span class="guide-badge">你的裝置</span></h3>
+      <ol>
+        <li>先把提醒匯入 Google／Android 行事曆。</li>
+        <li>Play 商店安裝免費的 <a href="https://play.google.com/store/apps/details?id=com.app_by_LZ.calendar_alarm_clock" target="_blank" rel="noopener">Calendar Alarm Clock Reminder</a>。</li>
+        <li>開 App → 允許讀取行事曆 → 選你匯入提醒的那個行事曆。</li>
+        <li>它會自動把行事曆事件變成鬧鐘（鬧鐘音量、可穿透靜音／勿擾）。</li>
+      </ol>
+    </div>
+
+    <div class="guide-sec" data-env="ios">
+      <h3>iPhone（免費）<span class="guide-badge">你的裝置</span></h3>
+      <ol>
+        <li>先用 Safari 把提醒匯入 iPhone 行事曆。</li>
+        <li>開內建「捷徑」App，新增捷徑並加入「<strong>建立鬧鐘</strong>」動作。</li>
+        <li>最簡單：按上方「複製所有提醒時間」，做一個讀剪貼簿、逐一「建立每日鬧鐘」的捷徑，跑一次即可。</li>
+        <li>進階：用「自動化」→「尋找行事曆事項（今天）」→ 對每項「建立鬧鐘」，每天自動建立。</li>
+        <li>參考 <a href="https://support.apple.com/guide/shortcuts/welcome/ios" target="_blank" rel="noopener">Apple 捷徑使用說明</a>。</li>
+      </ol>
+    </div>
+
+    <div class="guide-sec">
+      <h3>iPhone 想要最強（一次性買斷、需 iOS 26）</h3>
+      <ol>
+        <li>用 AlarmKit 的鬧鐘可穿透靜音／勿擾、佔滿全螢幕。</li>
+        <li><a href="https://apps.apple.com/us/app/unmissable-calendar-alarm/id6752518796" target="_blank" rel="noopener">Unmissable</a> 或 <a href="https://apps.apple.com/us/app/calalarms-calendar-alarm/id6759266245" target="_blank" rel="noopener">CalAlarms</a>：連 Apple 行事曆自動轉鬧鐘（買斷、無訂閱）。</li>
+      </ol>
+    </div>
+
+    <div class="guide-sec">
+      <h3>單一跨平台 App（免費，但要手動輸入）</h3>
+      <ol>
+        <li><a href="https://www.galarmapp.com/" target="_blank" rel="noopener">Galarm</a>（iOS／Android 免費）：鬧鐘叫不停、可每日重複。</li>
+        <li>用上方「複製所有提醒時間」當參考，在 Galarm 手動建立每日鬧鐘。</li>
+      </ol>
+    </div>
+
+    <button id="guideCloseBtn" class="btn btn-secondary" style="margin-top:14px">關閉</button>
   </div>
 </div>
 
@@ -1244,6 +1311,33 @@ $('cfgFileInput').addEventListener('change', e => {
   if (f) importConfig(f);
   e.target.value = '';
 });
+
+/* ===== 強力鬧鐘引導 ===== */
+const guideOverlay = $('alarmGuideOverlay');
+function remTimesText() {
+  return activeSlots().map(({ ex, slot }) => `${slot.time} ${ex.name}`).join('\n');
+}
+async function copyTimes() {
+  const text = remTimesText();
+  if (!text) { alert('還沒有提醒時間，先在上一頁新增。'); return; }
+  try {
+    await navigator.clipboard.writeText(text);
+    alert('已複製提醒時間：\n\n' + text);
+  } catch (e) {
+    prompt('手動複製這些時間：', text);
+  }
+}
+function openAlarmGuide() {
+  const env = detectEnv();
+  document.querySelectorAll('#alarmGuideOverlay .guide-sec').forEach(s => {
+    s.classList.toggle('active', s.dataset.env === env);
+  });
+  guideOverlay.classList.add('open');
+}
+$('alarmGuideBtn').addEventListener('click', openAlarmGuide);
+$('guideCloseBtn').addEventListener('click', () => guideOverlay.classList.remove('open'));
+guideOverlay.addEventListener('click', e => { if (e.target === guideOverlay) guideOverlay.classList.remove('open'); });
+$('guideCopyBtn').addEventListener('click', copyTimes);
 
 /* ===== 按鈕事件 ===== */
 ui.mainBtn.addEventListener('click', () => {
